@@ -1,8 +1,10 @@
 name: Update README Nodes
 
 on:
+  push:
+    branches: [ main ]
   schedule:
-    - cron: "0 */3 * * *"   # 每3小时执行一次
+    - cron: "0 */3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,12 +15,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          persist-credentials: true
 
-      - name: Fetch subscription and update README
+      - name: Update Nodes
         env:
           SUBSCRIPTION_URL: ${{ secrets.SUBSCRIPTION_URL }}
         run: |
