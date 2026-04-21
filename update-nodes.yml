@@ -1,0 +1,100 @@
+name: Update README Nodes
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"   # 每3小时执行一次
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Fetch subscription and update README
+        env:
+          SUBSCRIPTION_URL: ${{ secrets.SUBSCRIPTION_URL }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          import random
+          import re
+          import urllib.request
+          from pathlib import Path
+
+          url = os.environ.get("SUBSCRIPTION_URL", "").strip()
+          if not url:
+              raise SystemExit("Missing secret: SUBSCRIPTION_URL")
+
+          with urllib.request.urlopen(url, timeout=30) as resp:
+              raw_bytes = resp.read()
+
+          raw_text = raw_bytes.decode("utf-8", errors="ignore").strip()
+
+          def looks_like_base64(s: str) -> bool:
+              s = re.sub(r"\s+", "", s)
+              return len(s) > 40 and re.fullmatch(r"[A-Za-z0-9+/=]+", s) is not None
+
+          candidate_text = raw_text
+          if looks_like_base64(raw_text):
+              try:
+                  decoded = base64.b64decode(re.sub(r"\s+", "", raw_text), validate=False)
+                  candidate_text = decoded.decode("utf-8", errors="ignore").strip()
+              except Exception:
+                  candidate_text = raw_text
+
+          node_pattern = re.compile(
+              r'(?im)^(?:ss|ssr|vmess|vless|trojan|hy2|hysteria2|wg|wireguard|tuic)://\S+'
+          )
+          nodes = node_pattern.findall(candidate_text)
+
+          if not nodes:
+              nodes = [line.strip() for line in candidate_text.splitlines() if line.strip()]
+
+          deduped = []
+          seen = set()
+          for n in nodes:
+              if n not in seen:
+                  deduped.append(n)
+                  seen.add(n)
+
+          if not deduped:
+              raise SystemExit("No nodes found in subscription content.")
+
+          count = min(5, len(deduped))
+          selected = random.sample(deduped, count)
+
+          block = "## 🔥 随机节点（每3小时更新）\n\n<!-- NODES_START -->\n```text\n"
+          block += "\n".join(selected)
+          block += "\n```\n<!-- NODES_END -->"
+
+          readme_path = Path("README.md")
+          content = readme_path.read_text(encoding="utf-8")
+
+          pattern = re.compile(
+              r'## 🔥 随机节点（每3小时更新）\s*<!-- NODES_START -->.*?<!-- NODES_END -->',
+              re.S
+          )
+
+          if not pattern.search(content):
+              raise SystemExit("Target section not found in README.md")
+
+          new_content = pattern.sub(block, content)
+          readme_path.write_text(new_content, encoding="utf-8")
+          PY
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "chore: update random nodes" || exit 0
+          git push
